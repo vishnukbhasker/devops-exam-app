@@ -11,94 +11,124 @@ from flask import render_template_string
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'devops-exam-secret-key')
 
-
-# Helper: Connect to MySQL
 def get_db_connection():
-    try:
-        return mysql.connector.connect(
-            host=os.getenv('MYSQL_HOST', 'mysql'),
-            user=os.getenv('MYSQL_USER', 'root'),
-            password=os.getenv('MYSQL_PASSWORD', 'rootpass'),
-            database=os.getenv('MYSQL_DATABASE', 'devops_exam')
-        )
-    except Exception as e:
-        app.logger.error(f"Database connection failed: {e}")
-        return None
+    return mysql.connector.connect(
+        host=os.getenv('MYSQL_HOST', 'mysql'),
+        user=os.getenv('MYSQL_USER', 'root'),
+        password=os.getenv('MYSQL_PASSWORD', 'rootpass'),
+        database=os.getenv('MYSQL_DATABASE', 'devops_exam')
+    )
 
-
-# Helper: Load certificate template
 def read_certificate_template():
-    cert_path = os.path.join(os.path.dirname(__file__), 'certificate.html')
-    if not os.path.exists(cert_path):
-        app.logger.warning("certificate.html not found. Using fallback.")
-        return "<h1>Certificate for {{ name }}</h1><p>Score: {{ score }}</p><p>Date: {{ date }}</p>"
-    with open(cert_path, 'r') as file:
+    with open(os.path.join(os.path.dirname(__file__), 'certificate.html'), 'r') as file:
         return file.read()
-
 
 @app.route('/')
 def index():
-    try:
-        return render_template('index.html')
-    except Exception as e:
-        app.logger.error(f"Template rendering failed: {e}")
-        return f"<h2>Error: Template 'index.html' not found.</h2><p>{e}</p>", 500
-
+    return render_template('index.html')
 
 @app.route('/start', methods=['POST'])
 def start_exam():
     session['name'] = request.form['name']
-    session['score'] = 0
-    session['current'] = 0
-    random.shuffle(questions)
-    session['questions'] = questions[:5]  # Limit to 5 questions
-    return redirect(url_for('question'))
+    session['gender'] = request.form['gender']
+    session['email'] = request.form['email']
+    
+    # Select 15 random questions and store in session
+    selected_questions = random.sample(questions, 15)
+    for i, q in enumerate(selected_questions):
+        q['index'] = i  # Add unique index to each question
+    session['questions'] = selected_questions
+    
+    return render_template('exam.html', 
+                         name=session['name'],
+                         gender=session['gender'],
+                         email=session['email'],
+                         questions=selected_questions)
 
+@app.route('/submit', methods=['POST'])
+def submit_exam():
+    try:
+        # Verify all questions were answered
+        questions_in_session = session.get('questions', [])
+        for i in range(len(questions_in_session)):
+            if f'question_{i}' not in request.form:
+                return "Please answer all questions", 400
+        
+        db = get_db_connection()
+        cursor = db.cursor()
+        
+        # Calculate score
+        score = 0
+        for i, q in enumerate(session['questions']):
+            user_answer = request.form.get(f'question_{i}')
+            if user_answer == q['answer']:
+                score += 1
 
-@app.route('/question')
-def question():
-    if session.get('current') >= len(session['questions']):
-        return redirect(url_for('result'))
+        cursor.execute(
+            "INSERT INTO results (username, gender, email, score) VALUES (%s, %s, %s, %s)",
+            (session['name'], session['gender'], session['email'], score)
+        )
+        db.commit()
+        
+        # Store name in session for certificate generation
+        session['exam_score'] = score
+        
+        return render_template('result.html', 
+                             name=session.get('name'),
+                             score=score,
+                             total=len(questions_in_session))
+    except Exception as e:
+        app.logger.error(f"Database error: {str(e)}")
+        return "An error occurred while processing your exam", 500
+    finally:
+        if 'db' in locals():
+            db.close()
 
-    q = session['questions'][session['current']]
-    return render_template_string("""
-        <h2>Question {{ num }}</h2>
-        <form method="POST" action="{{ url_for('answer') }}">
-            <p>{{ q['question'] }}</p>
-            {% for option in q['options'] %}
-                <input type="radio" name="answer" value="{{ option }}" required> {{ option }}<br>
-            {% endfor %}
-            <button type="submit">Submit</button>
-        </form>
-    """, q=q, num=session['current'] + 1)
+@app.route('/download_certificate')
+def download_certificate():
+    try:
+        # Get user details from session
+        name = session.get('name', 'Exam Participant')
+        score = session.get('exam_score', 0)
+        
+        # Read certificate template
+        template = read_certificate_template()
+        
+        # Render template with user data
+        rendered = render_template_string(template,
+                                       name=name,
+                                       score=score,
+                                       date=datetime.now().strftime("%B %d, %Y"))
+        
+        # Create PDF
+        pdf = BytesIO()
+        pisa.CreatePDF(rendered, dest=pdf)
+        pdf.seek(0)
+        
+        # Create response
+        response = make_response(pdf.read())
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename=devops_certificate_{name.replace(" ", "_")}.pdf'
+        
+        return response
+    except Exception as e:
+        app.logger.error(f"Certificate generation error: {str(e)}")
+        return "An error occurred while generating your certificate", 500
 
-
-@app.route('/answer', methods=['POST'])
-def answer():
-    q = session['questions'][session['current']]
-    if request.form['answer'] == q['answer']:
-        session['score'] += 1
-    session['current'] += 1
-    return redirect(url_for('question'))
-
-
-@app.route('/result')
-def result():
-    name = session.get('name', 'User')
-    score = session.get('score', 0)
-    cert_template = read_certificate_template()
-    cert_html = render_template_string(cert_template, name=name, score=score, date=datetime.now().strftime("%Y-%m-%d"))
-
-    pdf = BytesIO()
-    pisa_status = pisa.CreatePDF(cert_html, dest=pdf)
-    if pisa_status.err:
-        return "<h2>Failed to generate certificate</h2>"
-
-    response = make_response(pdf.getvalue())
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = f'attachment; filename=certificate_{name}.pdf'
-    return response
-
+@app.route('/admin')
+def admin_view():
+    try:
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("SELECT username, gender, email, score FROM results")
+        records = cursor.fetchall()
+        return render_template('admin.html', records=records)
+    except Exception as e:
+        app.logger.error(f"Database error: {str(e)}")
+        return "Database error occurred", 500
+    finally:
+        if 'db' in locals():
+            db.close()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
