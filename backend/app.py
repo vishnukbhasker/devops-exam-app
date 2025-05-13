@@ -25,7 +25,13 @@ def read_certificate_template():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # This prints the full error in the container logs
+        return f"<h2>Template error</h2><pre>{e}</pre>", 500
+
 
 @app.route('/start', methods=['POST'])
 def start_exam():
