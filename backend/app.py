@@ -8,8 +8,14 @@ from datetime import datetime
 from xhtml2pdf import pisa
 from flask import render_template_string
 
+# 🔧 Prometheus client import
+from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'devops-exam-secret-key')
+
+# 🔧 Prometheus counter metric
+REQUEST_COUNT = Counter('app_requests_total', 'Total number of requests served')
 
 def get_db_connection():
     return mysql.connector.connect(
@@ -26,12 +32,12 @@ def read_certificate_template():
 @app.route('/')
 def index():
     try:
+        REQUEST_COUNT.inc()  # 🔧 increment Prometheus counter
         return render_template('index.html')
     except Exception as e:
         import traceback
-        traceback.print_exc()  # This prints the full error in the container logs
+        traceback.print_exc()
         return f"<h2>Template error</h2><pre>{e}</pre>", 500
-
 
 @app.route('/start', methods=['POST'])
 def start_exam():
@@ -39,22 +45,20 @@ def start_exam():
     session['gender'] = request.form['gender']
     session['email'] = request.form['email']
     
-    # Select 15 random questions and store in session
     selected_questions = random.sample(questions, 15)
     for i, q in enumerate(selected_questions):
-        q['index'] = i  # Add unique index to each question
+        q['index'] = i
     session['questions'] = selected_questions
     
     return render_template('exam.html', 
-                         name=session['name'],
-                         gender=session['gender'],
-                         email=session['email'],
-                         questions=selected_questions)
+                           name=session['name'],
+                           gender=session['gender'],
+                           email=session['email'],
+                           questions=selected_questions)
 
 @app.route('/submit', methods=['POST'])
 def submit_exam():
     try:
-        # Verify all questions were answered
         questions_in_session = session.get('questions', [])
         for i in range(len(questions_in_session)):
             if f'question_{i}' not in request.form:
@@ -63,7 +67,6 @@ def submit_exam():
         db = get_db_connection()
         cursor = db.cursor()
         
-        # Calculate score
         score = 0
         for i, q in enumerate(session['questions']):
             user_answer = request.form.get(f'question_{i}')
@@ -76,13 +79,12 @@ def submit_exam():
         )
         db.commit()
         
-        # Store name in session for certificate generation
         session['exam_score'] = score
         
         return render_template('result.html', 
-                             name=session.get('name'),
-                             score=score,
-                             total=len(questions_in_session))
+                               name=session.get('name'),
+                               score=score,
+                               total=len(questions_in_session))
     except Exception as e:
         app.logger.error(f"Database error: {str(e)}")
         return "An error occurred while processing your exam", 500
@@ -93,25 +95,19 @@ def submit_exam():
 @app.route('/download_certificate')
 def download_certificate():
     try:
-        # Get user details from session
         name = session.get('name', 'Exam Participant')
         score = session.get('exam_score', 0)
         
-        # Read certificate template
         template = read_certificate_template()
-        
-        # Render template with user data
         rendered = render_template_string(template,
-                                       name=name,
-                                       score=score,
-                                       date=datetime.now().strftime("%B %d, %Y"))
+                                          name=name,
+                                          score=score,
+                                          date=datetime.now().strftime("%B %d, %Y"))
         
-        # Create PDF
         pdf = BytesIO()
         pisa.CreatePDF(rendered, dest=pdf)
         pdf.seek(0)
         
-        # Create response
         response = make_response(pdf.read())
         response.headers['Content-Type'] = 'application/pdf'
         response.headers['Content-Disposition'] = f'attachment; filename=devops_certificate_{name.replace(" ", "_")}.pdf'
@@ -135,6 +131,11 @@ def admin_view():
     finally:
         if 'db' in locals():
             db.close()
+
+# 🔧 Prometheus metrics endpoint
+@app.route('/metrics')
+def metrics():
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
