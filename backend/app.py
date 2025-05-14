@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, make_response
+from flask import Flask, render_template, request, redirect, url_for, session, make_response, render_template_string
 import random
 import mysql.connector
 from questions import questions
@@ -6,7 +6,6 @@ import os
 from io import BytesIO
 from datetime import datetime
 from xhtml2pdf import pisa
-from flask import render_template_string
 
 # 🔧 Prometheus client import
 from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
@@ -137,5 +136,6 @@ def admin_view():
 def metrics():
     return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
+# 🔧 Run the app directly
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
