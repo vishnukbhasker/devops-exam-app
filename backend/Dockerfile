@@ -4,6 +4,9 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
+COPY backend/ /app/
+COPY frontend/ /app/templates
+
 COPY requirements.txt requirements.txt
 RUN pip install -r requirements.txt
 
