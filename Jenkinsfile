@@ -5,54 +5,52 @@ pipeline {
         DOCKER_IMAGE = "vishnukbhasker/devopsexamapp:latest"
         AZURE_VM_IP = "20.11.8.93"
         AZURE_VM_USER = "azureuser"
+        SSH_CRED_ID = "azure-vm-ssh"
+        GIT_REPO = "https://github.com/vishnukbhasker/devops-exam-app.git"
+        APP_DIR = "~/devops-exam-app"
     }
 
     stages {
-        stage('Git Checkout') {
+        stage('Git Checkout (Local)') {
             steps {
-                git url: 'https://github.com/vishnukbhasker/devops-exam-app.git',
-                    branch: 'master'
+                git url: "${env.GIT_REPO}", branch: 'master'
             }
         }
 
         stage('Verify Docker Compose') {
             steps {
-                sh '''
-                docker compose version || { echo "Docker Compose not available"; exit 1; }
-                '''
+                sh 'docker compose version || { echo "Docker Compose not available"; exit 1; }'
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                dir('backend') {
-                    script {
-                        withDockerRegistry(credentialsId: 'docker-creds', toolName: 'docker') {
-                            sh "docker build -t ${DOCKER_IMAGE} ."
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Push to Docker Hub') {
+        stage('Build & Push Docker Image') {
             steps {
                 script {
-                    withDockerRegistry(credentialsId: 'docker-creds', toolName: 'docker') {
-                        sh "docker push ${DOCKER_IMAGE}"
+                    withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                        sh """
+                        docker build -t ${DOCKER_IMAGE} .
+                        docker push ${DOCKER_IMAGE}
+                        """
                     }
                 }
             }
         }
 
-        stage('Deploy to Azure VM') {
+        stage('Deploy on Azure VM') {
             steps {
-                sshagent(['azure-vm-ssh']) {
+                sshagent([env.SSH_CRED_ID]) {
                     sh """
                     ssh -o StrictHostKeyChecking=no ${AZURE_VM_USER}@${AZURE_VM_IP} '
-                        docker rm -f devopsexamapp || true
-                        docker pull ${DOCKER_IMAGE}
-                        docker run -d --name devopsexamapp -p 5000:5000 ${DOCKER_IMAGE}
+                        if [ -d ${APP_DIR} ]; then
+                            cd ${APP_DIR} && git pull
+                        else
+                            git clone ${GIT_REPO} ${APP_DIR}
+                        fi
+
+                        cd ${APP_DIR}
+                        docker compose down || true
+                        docker compose pull
+                        docker compose up -d
                     '
                     """
                 }
@@ -61,12 +59,12 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-                sshagent(['azure-vm-ssh']) {
+                sshagent([env.SSH_CRED_ID]) {
                     sh """
                     ssh -o StrictHostKeyChecking=no ${AZURE_VM_USER}@${AZURE_VM_IP} '
                         echo "=== Container Status ==="
                         docker ps -a
-                        echo "=== Testing Flask Endpoint ==="
+                        echo "=== Testing Web Service ==="
                         curl -I http://localhost:80 || true
                     '
                     """
@@ -83,7 +81,7 @@ pipeline {
             echo '❌ Pipeline failed.'
         }
         always {
-            echo '📦 Cleanup or final logging can be added here.'
+            echo '📦 Final cleanup or logging done here.'
         }
     }
 }
