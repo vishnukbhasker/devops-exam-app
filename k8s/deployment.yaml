@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devopsexamapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: devopsexamapp
+  template:
+    metadata:
+      labels:
+        app: devopsexamapp
+    spec:
+      containers:
+        - name: devopsexamapp
+          image: vishnukbhasker/devopsexamapp:latest
+          ports:
+            - containerPort: 80
