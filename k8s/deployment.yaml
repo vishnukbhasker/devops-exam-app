@@ -13,9 +13,9 @@ spec:
         app: devopsexamapp
     spec:
       imagePullSecrets:
-        - name: regcred    # <-- Add this line for private Docker registry auth
+        - name: regcred
       containers:
         - name: devopsexamapp
           image: vishnukbhasker/devopsexamapp:latest
           ports:
-            - containerPort: 80
+            - containerPort: 5000  # Updated from 80 to 5000
