@@ -77,19 +77,8 @@ pipeline {
             }
         }
 
-        stage('Verify Deployment') {
+        stage('Verify Kubernetes Deployment') {
             steps {
-                sshagent([env.SSH_CRED_ID]) {
-                    sh """
-                    ssh -o StrictHostKeyChecking=no ${AZURE_VM_USER}@${AZURE_VM_IP} '
-                        echo "=== Container Status ==="
-                        docker ps -a
-                        echo "=== Testing Web Service ==="
-                        curl -I http://localhost:80 || true
-                    '
-                    """
-                }
-
                 sh 'kubectl get all -n ${K8S_NAMESPACE}'
             }
         }
