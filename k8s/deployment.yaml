@@ -12,6 +12,8 @@ spec:
       labels:
         app: devopsexamapp
     spec:
+      imagePullSecrets:
+        - name: regcred    # <-- Add this line for private Docker registry auth
       containers:
         - name: devopsexamapp
           image: vishnukbhasker/devopsexamapp:latest
