@@ -4,10 +4,10 @@ metadata:
   name: devops-exam-service
 spec:
   selector:
-    app: devops-exam-app  # your app label
+    app: devopsexamapp  # Updated to match your deployment's label
   type: NodePort
   ports:
     - protocol: TCP
-      port: 80
-      targetPort: 80
-      nodePort: 32123  # you can pick any valid port 30000-32767
+      port: 80            # External port for clients
+      targetPort: 5000    # Internal container port your app listens on
+      nodePort: 32123     # Manually chosen NodePort (must be in 30000–32767)
