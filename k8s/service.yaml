@@ -3,10 +3,11 @@ kind: Service
 metadata:
   name: devops-exam-service
 spec:
-  type: LoadBalancer
   selector:
-    app: devops-exam-app
+    app: devops-exam-app  # your app label
+  type: NodePort
   ports:
     - protocol: TCP
       port: 80
       targetPort: 80
+      nodePort: 32123  # you can pick any valid port 30000-32767
