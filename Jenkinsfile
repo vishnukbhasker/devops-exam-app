@@ -8,6 +8,7 @@ pipeline {
         SSH_CRED_ID = "azure-vm-ssh"
         GIT_REPO = "https://github.com/vishnukbhasker/devops-exam-app.git"
         APP_DIR = "~/devops-exam-app"
+        K8S_NAMESPACE = "default"
     }
 
     stages {
@@ -36,7 +37,7 @@ pipeline {
             }
         }
 
-        stage('Deploy on Azure VM') {
+        stage('Deploy on Azure VM (Docker Compose)') {
             steps {
                 sshagent([env.SSH_CRED_ID]) {
                     sh """
@@ -57,6 +58,25 @@ pipeline {
             }
         }
 
+        stage('Deploy to Azure Kubernetes Service (AKS)') {
+            steps {
+                withCredentials([string(credentialsId: 'azure-sp', variable: 'AZURE_CREDENTIALS_JSON')]) {
+                    sh '''
+                    echo "$AZURE_CREDENTIALS_JSON" > azure.json
+                    az login --service-principal --username $(jq -r .clientId azure.json) \
+                        --password $(jq -r .clientSecret azure.json) \
+                        --tenant $(jq -r .tenantId azure.json)
+
+                    az account set --subscription $(jq -r .subscriptionId azure.json)
+
+                    az aks get-credentials --resource-group devops-rg --name devops-cluster --overwrite-existing
+
+                    kubectl apply -f k8s/
+                    '''
+                }
+            }
+        }
+
         stage('Verify Deployment') {
             steps {
                 sshagent([env.SSH_CRED_ID]) {
@@ -69,6 +89,8 @@ pipeline {
                     '
                     """
                 }
+
+                sh 'kubectl get all -n ${K8S_NAMESPACE}'
             }
         }
     }
@@ -81,7 +103,7 @@ pipeline {
             echo '❌ Pipeline failed.'
         }
         always {
-            echo '📦 Final cleanup or logging done.  .'
+            echo '📦 Final cleanup or logging done.'
         }
     }
 }
